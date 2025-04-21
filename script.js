@@ -139,8 +139,10 @@ async function startGame() {
 
   const stream = await navigator.mediaDevices.getUserMedia({
     video: {
-      facingMode: { exact: 'environment' },
+      facingMode: 'user',
       width: { ideal: 640 },
+      height: { ideal: 480 }
+    },
       height: { ideal: 480 }
     },
     audio: false
