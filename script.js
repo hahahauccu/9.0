@@ -1,3 +1,4 @@
+// ✅ Pose Matching Game with Angle-Based Comparison
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
@@ -7,11 +8,10 @@ const poseImage = document.getElementById('poseImage');
 let detector, rafId;
 let currentPoseIndex = 0;
 const totalPoses = 7;
-const similarityThreshold = 0.89;
+const similarityThreshold = 0.85; // 角度比對的門檻（可調整）
 let standardKeypointsList = [];
 let poseOrder = [];
 
-// 隨機打亂 1~8
 function shufflePoseOrder() {
   poseOrder = Array.from({ length: totalPoses }, (_, i) => i + 1);
   for (let i = poseOrder.length - 1; i > 0; i--) {
@@ -21,7 +21,6 @@ function shufflePoseOrder() {
   console.log("本次順序：", poseOrder);
 }
 
-// 嘗試載入 png 或 PNG
 function resolvePoseImageName(base) {
   const png = `poses/${base}.png`;
   const PNG = `poses/${base}.PNG`;
@@ -33,7 +32,6 @@ function resolvePoseImageName(base) {
   });
 }
 
-// 載入所有 pose JSON 和配圖
 async function loadStandardKeypoints() {
   for (const i of poseOrder) {
     const res = await fetch(`poses/pose${i}.json`);
@@ -47,7 +45,6 @@ async function loadStandardKeypoints() {
   }
 }
 
-// 畫骨架
 function drawKeypoints(kps, color, radius, alpha) {
   ctx.globalAlpha = alpha;
   ctx.fillStyle = color;
@@ -61,22 +58,53 @@ function drawKeypoints(kps, color, radius, alpha) {
   ctx.globalAlpha = 1.0;
 }
 
-// 計算相似度
-function compareKeypoints(a, b) {
-  let sum = 0, count = 0;
-  for (let i = 0; i < a.length && i < b.length; i++) {
-    if (a[i].score > 0.4 && b[i].score > 0.4) {
-      const dx = a[i].x - b[i].x;
-      const dy = a[i].y - b[i].y;
-      sum += Math.hypot(dx, dy);
+function computeAngle(a, b, c) {
+  const ab = { x: a.x - b.x, y: a.y - b.y };
+  const cb = { x: c.x - b.x, y: c.y - b.y };
+  const dot = ab.x * cb.x + ab.y * cb.y;
+  const magAB = Math.hypot(ab.x, ab.y);
+  const magCB = Math.hypot(cb.x, cb.y);
+  if (magAB * magCB === 0) return 0;
+  let cosine = dot / (magAB * magCB);
+  cosine = Math.max(-1, Math.min(1, cosine));
+  return Math.acos(cosine) * (180 / Math.PI);
+}
+
+function compareKeypointsAngleBased(userKeypoints, standardKeypoints) {
+  const get = name => userKeypoints.find(k => k.name === name);
+  const getStd = name => standardKeypoints.find(k => k.name === name);
+
+  const anglesToCompare = [
+    ["left_shoulder", "left_elbow", "left_wrist"],
+    ["right_shoulder", "right_elbow", "right_wrist"],
+    ["left_hip", "left_knee", "left_ankle"],
+    ["right_hip", "right_knee", "right_ankle"],
+    ["left_elbow", "left_shoulder", "left_hip"],
+    ["right_elbow", "right_shoulder", "right_hip"]
+  ];
+
+  let totalDiff = 0;
+  let count = 0;
+
+  for (const [a, b, c] of anglesToCompare) {
+    const ua = get(a), ub = get(b), uc = get(c);
+    const sa = getStd(a), sb = getStd(b), sc = getStd(c);
+
+    if ([ua, ub, uc, sa, sb, sc].every(kp => kp && kp.score > 0.4)) {
+      const userAngle = computeAngle(ua, ub, uc);
+      const stdAngle = computeAngle(sa, sb, sc);
+      const diff = Math.abs(userAngle - stdAngle);
+      totalDiff += diff;
       count++;
     }
   }
-  if (!count) return 0;
-  return 1 / (1 + (sum / count) / 100);
+
+  if (count === 0) return 0;
+  const avgDiff = totalDiff / count;
+  const similarity = 1 - (avgDiff / 60);
+  return Math.max(0, Math.min(1, similarity));
 }
 
-// 主偵測流程
 async function detect() {
   const result = await detector.estimatePoses(video);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -89,7 +117,7 @@ async function detect() {
     const user = result[0].keypoints;
     drawKeypoints(user, 'red', 6, 1.0);
 
-    const sim = compareKeypoints(user, currentPose.keypoints);
+    const sim = compareKeypointsAngleBased(user, currentPose.keypoints);
     if (sim > similarityThreshold) {
       currentPoseIndex++;
       if (currentPoseIndex < totalPoses) {
@@ -105,14 +133,13 @@ async function detect() {
   rafId = requestAnimationFrame(detect);
 }
 
-// 啟動流程
 async function startGame() {
   startBtn.disabled = true;
   startBtn.style.display = 'none';
 
   const stream = await navigator.mediaDevices.getUserMedia({
     video: {
-      facingMode: { exact: 'environment' }, // ✅ 使用主鏡頭
+      facingMode: { exact: 'environment' },
       width: { ideal: 640 },
       height: { ideal: 480 }
     },
@@ -123,8 +150,6 @@ async function startGame() {
 
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
-
-  // ✅ 鏡像翻轉處理
   ctx.setTransform(-1, 0, 0, 1, canvas.width, 0);
 
   try {
@@ -150,10 +175,8 @@ async function startGame() {
 
 startBtn.addEventListener("click", startGame);
 
-// ✅ 點一下畫面也能跳下一動作
 document.body.addEventListener('click', () => {
   if (!standardKeypointsList.length) return;
-
   currentPoseIndex++;
   if (currentPoseIndex < totalPoses) {
     poseImage.src = standardKeypointsList[currentPoseIndex].imagePath;
