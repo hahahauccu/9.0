@@ -10,17 +10,16 @@ const totalPoses = 7;
 let standardKeypointsList = [];
 let poseOrder = [];
 
-// 隨機打亂關卡順序
+// 隨機打亂順序
 function shufflePoseOrder() {
   poseOrder = Array.from({ length: totalPoses }, (_, i) => i + 1);
   for (let i = poseOrder.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [poseOrder[i], poseOrder[j]] = [poseOrder[j], poseOrder[i]];
   }
-  console.log("順序為：", poseOrder);
 }
 
-// 嘗試載入 png 或 PNG
+// 載入 PNG or png
 function resolvePoseImageName(base) {
   const png = `poses/${base}.png`;
   const PNG = `poses/${base}.PNG`;
@@ -32,7 +31,7 @@ function resolvePoseImageName(base) {
   });
 }
 
-// 載入標準骨架點與對應圖片
+// 載入所有姿勢
 async function loadStandardKeypoints() {
   for (const i of poseOrder) {
     const res = await fetch(`poses/pose${i}.json`);
@@ -46,7 +45,7 @@ async function loadStandardKeypoints() {
   }
 }
 
-// 計算三點夾角
+// 計算角度
 function computeAngle(a, b, c) {
   const ab = { x: b.x - a.x, y: b.y - a.y };
   const cb = { x: b.x - c.x, y: b.y - c.y };
@@ -57,7 +56,7 @@ function computeAngle(a, b, c) {
   return angleRad * (180 / Math.PI);
 }
 
-// 使用角度比對
+// 角度比對（45 度內算通過）
 function compareKeypointsAngleBased(user, standard) {
   const angles = [
     ["left_shoulder", "left_elbow", "left_wrist"],
@@ -74,7 +73,6 @@ function compareKeypointsAngleBased(user, standard) {
     const aUser = user.find(kp => kp.name === aName);
     const bUser = user.find(kp => kp.name === bName);
     const cUser = user.find(kp => kp.name === cName);
-
     const aStd = standard.find(kp => kp.name === aName);
     const bStd = standard.find(kp => kp.name === bName);
     const cStd = standard.find(kp => kp.name === cName);
@@ -89,10 +87,10 @@ function compareKeypointsAngleBased(user, standard) {
 
   if (count === 0) return 0;
   const avgDiff = totalDiff / count;
-  return avgDiff < 10 ? 1 : 0; // 小於 60 度當作通過
+  return avgDiff < 10 ? 1 : 0; // ← 判斷門檻（可調整）
 }
 
-// 畫骨架點
+// 畫骨架
 function drawKeypoints(kps, color, radius, alpha) {
   ctx.globalAlpha = alpha;
   ctx.fillStyle = color;
@@ -106,7 +104,7 @@ function drawKeypoints(kps, color, radius, alpha) {
   ctx.globalAlpha = 1.0;
 }
 
-// 偵測流程
+// 偵測主邏輯
 async function detect() {
   const result = await detector.estimatePoses(video);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -135,7 +133,7 @@ async function detect() {
   rafId = requestAnimationFrame(detect);
 }
 
-// 開始遊戲
+// 啟動遊戲
 async function startGame() {
   startBtn.disabled = true;
   startBtn.style.display = 'none';
@@ -160,7 +158,8 @@ async function startGame() {
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
 
-  ctx.setTransform(1, 0, 0, 1, 0, 0); // 自拍鏡頭：不鏡像畫面
+  // ✅ 鏡像處理
+  ctx.setTransform(-1, 0, 0, 1, canvas.width, 0);
 
   try {
     await tf.setBackend('webgl');
@@ -183,7 +182,7 @@ async function startGame() {
 
 startBtn.addEventListener("click", startGame);
 
-// 點一下畫面跳下一關
+// 點畫面也能跳過關卡
 document.body.addEventListener('click', () => {
   if (!standardKeypointsList.length) return;
   currentPoseIndex++;
