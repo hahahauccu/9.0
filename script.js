@@ -89,7 +89,7 @@ function compareKeypointsAngleBased(user, standard) {
 
   if (count === 0) return 0;
   const avgDiff = totalDiff / count;
-  return avgDiff < 60 ? 1 : 0; // 小於 60 度當作通過
+  return avgDiff < 10 ? 1 : 0; // 小於 60 度當作通過
 }
 
 // 畫骨架點
