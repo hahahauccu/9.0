@@ -1,4 +1,3 @@
-// ✅ Pose Matching Game with Angle-Based Comparison
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
@@ -8,19 +7,20 @@ const poseImage = document.getElementById('poseImage');
 let detector, rafId;
 let currentPoseIndex = 0;
 const totalPoses = 7;
-const similarityThreshold = 0.85; // 角度比對的門檻（可調整）
 let standardKeypointsList = [];
 let poseOrder = [];
 
+// 隨機打亂關卡順序
 function shufflePoseOrder() {
   poseOrder = Array.from({ length: totalPoses }, (_, i) => i + 1);
   for (let i = poseOrder.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [poseOrder[i], poseOrder[j]] = [poseOrder[j], poseOrder[i]];
   }
-  console.log("本次順序：", poseOrder);
+  console.log("順序為：", poseOrder);
 }
 
+// 嘗試載入 png 或 PNG
 function resolvePoseImageName(base) {
   const png = `poses/${base}.png`;
   const PNG = `poses/${base}.PNG`;
@@ -32,6 +32,7 @@ function resolvePoseImageName(base) {
   });
 }
 
+// 載入標準骨架點與對應圖片
 async function loadStandardKeypoints() {
   for (const i of poseOrder) {
     const res = await fetch(`poses/pose${i}.json`);
@@ -45,6 +46,53 @@ async function loadStandardKeypoints() {
   }
 }
 
+// 計算三點夾角
+function computeAngle(a, b, c) {
+  const ab = { x: b.x - a.x, y: b.y - a.y };
+  const cb = { x: b.x - c.x, y: b.y - c.y };
+  const dot = ab.x * cb.x + ab.y * cb.y;
+  const abLen = Math.hypot(ab.x, ab.y);
+  const cbLen = Math.hypot(cb.x, cb.y);
+  const angleRad = Math.acos(dot / (abLen * cbLen));
+  return angleRad * (180 / Math.PI);
+}
+
+// 使用角度比對
+function compareKeypointsAngleBased(user, standard) {
+  const angles = [
+    ["left_shoulder", "left_elbow", "left_wrist"],
+    ["right_shoulder", "right_elbow", "right_wrist"],
+    ["left_hip", "left_knee", "left_ankle"],
+    ["right_hip", "right_knee", "right_ankle"],
+    ["left_elbow", "left_shoulder", "left_hip"],
+    ["right_elbow", "right_shoulder", "right_hip"]
+  ];
+
+  let totalDiff = 0, count = 0;
+
+  for (const [aName, bName, cName] of angles) {
+    const aUser = user.find(kp => kp.name === aName);
+    const bUser = user.find(kp => kp.name === bName);
+    const cUser = user.find(kp => kp.name === cName);
+
+    const aStd = standard.find(kp => kp.name === aName);
+    const bStd = standard.find(kp => kp.name === bName);
+    const cStd = standard.find(kp => kp.name === cName);
+
+    if ([aUser, bUser, cUser, aStd, bStd, cStd].every(kp => kp?.score > 0.5)) {
+      const angleUser = computeAngle(aUser, bUser, cUser);
+      const angleStd = computeAngle(aStd, bStd, cStd);
+      totalDiff += Math.abs(angleUser - angleStd);
+      count++;
+    }
+  }
+
+  if (count === 0) return 0;
+  const avgDiff = totalDiff / count;
+  return avgDiff < 60 ? 1 : 0; // 小於 60 度當作通過
+}
+
+// 畫骨架點
 function drawKeypoints(kps, color, radius, alpha) {
   ctx.globalAlpha = alpha;
   ctx.fillStyle = color;
@@ -58,53 +106,7 @@ function drawKeypoints(kps, color, radius, alpha) {
   ctx.globalAlpha = 1.0;
 }
 
-function computeAngle(a, b, c) {
-  const ab = { x: a.x - b.x, y: a.y - b.y };
-  const cb = { x: c.x - b.x, y: c.y - b.y };
-  const dot = ab.x * cb.x + ab.y * cb.y;
-  const magAB = Math.hypot(ab.x, ab.y);
-  const magCB = Math.hypot(cb.x, cb.y);
-  if (magAB * magCB === 0) return 0;
-  let cosine = dot / (magAB * magCB);
-  cosine = Math.max(-1, Math.min(1, cosine));
-  return Math.acos(cosine) * (180 / Math.PI);
-}
-
-function compareKeypointsAngleBased(userKeypoints, standardKeypoints) {
-  const get = name => userKeypoints.find(k => k.name === name);
-  const getStd = name => standardKeypoints.find(k => k.name === name);
-
-  const anglesToCompare = [
-    ["left_shoulder", "left_elbow", "left_wrist"],
-    ["right_shoulder", "right_elbow", "right_wrist"],
-    ["left_hip", "left_knee", "left_ankle"],
-    ["right_hip", "right_knee", "right_ankle"],
-    ["left_elbow", "left_shoulder", "left_hip"],
-    ["right_elbow", "right_shoulder", "right_hip"]
-  ];
-
-  let totalDiff = 0;
-  let count = 0;
-
-  for (const [a, b, c] of anglesToCompare) {
-    const ua = get(a), ub = get(b), uc = get(c);
-    const sa = getStd(a), sb = getStd(b), sc = getStd(c);
-
-    if ([ua, ub, uc, sa, sb, sc].every(kp => kp && kp.score > 0.4)) {
-      const userAngle = computeAngle(ua, ub, uc);
-      const stdAngle = computeAngle(sa, sb, sc);
-      const diff = Math.abs(userAngle - stdAngle);
-      totalDiff += diff;
-      count++;
-    }
-  }
-
-  if (count === 0) return 0;
-  const avgDiff = totalDiff / count;
-  const similarity = 1 - (avgDiff / 60);
-  return Math.max(0, Math.min(1, similarity));
-}
-
+// 偵測流程
 async function detect() {
   const result = await detector.estimatePoses(video);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -118,7 +120,7 @@ async function detect() {
     drawKeypoints(user, 'red', 6, 1.0);
 
     const sim = compareKeypointsAngleBased(user, currentPose.keypoints);
-    if (sim > similarityThreshold) {
+    if (sim === 1) {
       currentPoseIndex++;
       if (currentPoseIndex < totalPoses) {
         poseImage.src = standardKeypointsList[currentPoseIndex].imagePath;
@@ -133,35 +135,39 @@ async function detect() {
   rafId = requestAnimationFrame(detect);
 }
 
+// 開始遊戲
 async function startGame() {
   startBtn.disabled = true;
   startBtn.style.display = 'none';
 
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: {
-      facingMode: 'user',
-      width: { ideal: 640 },
-      height: { ideal: 480 }
-    },
-      height: { ideal: 480 }
-    },
-    audio: false
-  });
-  video.srcObject = stream;
-  await video.play();
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'user' },
+        width: { ideal: 640 },
+        height: { ideal: 480 }
+      },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+  } catch (err) {
+    alert("⚠️ 無法開啟攝影機：" + err.message);
+    console.error(err);
+    return;
+  }
 
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
-  ctx.setTransform(-1, 0, 0, 1, canvas.width, 0);
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0); // 自拍鏡頭：不鏡像畫面
 
   try {
-    await tf.setBackend('webgl'); await tf.ready();
+    await tf.setBackend('webgl');
+    await tf.ready();
   } catch {
-    try {
-      await tf.setBackend('wasm'); await tf.ready();
-    } catch {
-      await tf.setBackend('cpu'); await tf.ready();
-    }
+    await tf.setBackend('wasm');
+    await tf.ready();
   }
 
   detector = await poseDetection.createDetector(
@@ -177,6 +183,7 @@ async function startGame() {
 
 startBtn.addEventListener("click", startGame);
 
+// 點一下畫面跳下一關
 document.body.addEventListener('click', () => {
   if (!standardKeypointsList.length) return;
   currentPoseIndex++;
