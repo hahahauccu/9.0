@@ -2,6 +2,7 @@ const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const startBtn = document.getElementById('startBtn');
+const restartBtn = document.getElementById('restartBtn');
 const poseImage = document.getElementById('poseImage');
 
 let detector, rafId;
@@ -33,6 +34,7 @@ function resolvePoseImageName(base) {
 
 // 載入所有姿勢
 async function loadStandardKeypoints() {
+  standardKeypointsList = [];
   for (const i of poseOrder) {
     const res = await fetch(`poses/pose${i}.json`);
     const json = await res.json();
@@ -56,7 +58,7 @@ function computeAngle(a, b, c) {
   return angleRad * (180 / Math.PI);
 }
 
-// 角度比對（45 度內算通過）
+// 角度比對
 function compareKeypointsAngleBased(user, standard) {
   const angles = [
     ["left_shoulder", "left_elbow", "left_wrist"],
@@ -87,7 +89,7 @@ function compareKeypointsAngleBased(user, standard) {
 
   if (count === 0) return 0;
   const avgDiff = totalDiff / count;
-  return avgDiff < 7.5 ? 1 : 0; // ← 判斷門檻（可調整）
+  return avgDiff < 7.5 ? 1 : 0;
 }
 
 // 畫骨架
@@ -124,8 +126,9 @@ async function detect() {
         poseImage.src = standardKeypointsList[currentPoseIndex].imagePath;
       } else {
         cancelAnimationFrame(rafId);
+        poseImage.src = "";
         alert('🎉 全部完成！');
-        return;
+        restartBtn.style.display = 'block';
       }
     }
   }
@@ -135,13 +138,17 @@ async function detect() {
 
 // 啟動遊戲
 async function startGame() {
-  startBtn.disabled = true;
+  cancelAnimationFrame(rafId);
+  standardKeypointsList = [];
+  currentPoseIndex = 0;
   startBtn.style.display = 'none';
+  restartBtn.style.display = 'none';
+  poseImage.src = "";
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
-        facingMode: { ideal: 'user' },
+        facingMode: { exact: 'environment' }, // ✅ 主鏡頭
         width: { ideal: 640 },
         height: { ideal: 480 }
       },
@@ -157,9 +164,7 @@ async function startGame() {
 
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
-
-  // ✅ 鏡像處理
-  ctx.setTransform(-1, 0, 0, 1, canvas.width, 0);
+  ctx.setTransform(-1, 0, 0, 1, canvas.width, 0); // ✅ 鏡像
 
   try {
     await tf.setBackend('webgl');
@@ -181,6 +186,7 @@ async function startGame() {
 }
 
 startBtn.addEventListener("click", startGame);
+restartBtn.addEventListener("click", startGame);
 
 // 點畫面也能跳過關卡
 document.body.addEventListener('click', () => {
@@ -191,5 +197,6 @@ document.body.addEventListener('click', () => {
   } else {
     cancelAnimationFrame(rafId);
     alert('🎉 全部完成！');
+    restartBtn.style.display = 'block';
   }
 });
